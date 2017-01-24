@@ -1,0 +1,396 @@
+# Chip8 is a virtual machine designed in 1977 for programming video games.
+# Octo is a high level assembler, disassembler and simulator for Chip8.
+# Click 'Run' and then press ASWD to move the sprite around the screen.
+# Click the Octo logo for source, documentation and examples.
+
+###########################################
+#
+#  Assets and Data
+#
+###########################################
+
+:const bird_max_x 56
+:const bird_max_y 25
+
+:alias wave-state v6 # which wave frame to draw
+:alias wave-timer v7
+:alias hide       v8
+:alias bird-state v9
+:alias lock       va
+:alias score      vb
+:alias px         vc
+:alias py         vd
+
+# Note that ve is used as a temp register for comparisons
+# vf is used by CHIP8 to report collisions.
+# Wikipedia states that vf = 1 if a a screen pixel is flipped,
+# and 0 otherwise. But, I think Octo actually just increments it.
+:alias collision vf
+
+# Goodies data ({alive=1, dead=0}, x, y)
+: star_data    1 0 0
+: dollar_data  1 0 0
+: shell_data   1 0 0
+: swirl_data   1 0 0
+: swirl-2_data 1 0 0
+: swirl-3_data 1 0 0
+
+: star
+    0x20 0xF8 0x70 0x50 0x00 0x00 0x00 0x00
+
+: dollar
+    0x70 0xA8 0xD8 0xA8 0x70 0x00 0x00 0x00
+
+: shell
+    0x70 0xD8 0xD8 0x70 0x20 0x00 0x00 0x00
+
+: swirl
+    0x70 0xD8 0x88 0x70 0x00 0x20 0x00 0x00
+
+: swirl-2
+    0x18 0x2C 0xD6 0x1C 0x00 0x00 0x00 0x00
+
+: swirl-3
+    0x78 0xFC 0xCC 0xB4 0x2C 0x00 0x00 0x00
+
+: bird-0
+    0x0E 0x9D 0xFE 0xF4 0x4C 0x38 0x10 0x00
+
+: bird-1
+    0x00 0x0E 0x9D 0xFE 0x74 0x4C 0x38 0x00
+
+: bird-2
+    0x00 0x80 0xFC 0xF6 0x4F 0x3F 0x00 0x00
+
+# Wave data (tile height, offset x, offset y, bird_min_y) # (offset x, offset y, pixel height)
+: wave-data-1-5  15 00 00 10       #  0 0  9
+: wave-data-2    15 00 10 24       # 10 0 13
+: wave-data-3    15 00 16 32       # 16 0 15
+: wave-data-4a   09 00 05 24       #  5 0 18
+: wave-data-4b   09 00 14 24
+
+: wave-1-5
+    0b00000000 0b00001000 0b00010000 0b00010000 0b00111000 0b11111100 0b11111111 0b01111111 0b00011111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00010000 0b00001010 0b00001011 0b00011111 0b00111111 0b11111111 0b11111111 0b11111110 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00010001 0b00011111 0b00111111 0b11111111 0b11111111 0b11100000 0b10000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b11111111 0b11111111 0b11111111 0b11111111 0b11110000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00011000 0b11111100 0b11111111 0b11111111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00111111 0b01111111 0b11111111 0b11111111 0b00000001 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b10000000 0b11000000 0b11100001 0b11111111 0b11111111 0b00011111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b11100000 0b11100000 0b11110000 0b11111000 0b11111111 0b11111111 0b00011111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000
+
+: wave-2
+    0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b01000000 0b11000100 0b01000100 0b01101100 0b11111100 0b11111110 0b11111111 0b00011111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b01000000 0b01000001 0b01000001 0b01000001 0b01000011 0b01100111 0b11111111 0b11111111 0b11111100 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000010 0b00000010 0b10000110 0b11111111 0b11111111 0b11111111 0b11111000 0b11000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000100 0b00000100 0b00100100 0b00100110 0b00110111 0b00111111 0b01111111 0b11111111 0b11100000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00010000 0b00010000 0b01010000 0b01010010 0b01111010 0b11111110 0b11111111 0b11111111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b01000100 0b01000100 0b01101100 0b01111100 0b11111100 0b11111110 0b00011111 0b00000001 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000010 0b00100010 0b00100100 0b00010100 0b00011100 0b01111100 0b11111100 0b11111110 0b00011111 0b00000011 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00101000 0b00101000 0b00110000 0b00100000 0b00100000 0b01100000 0b11110001 0b11111111 0b01111111 0b00000000 0b00000000
+
+: wave-3
+    0b00000000 0b00000000 0b00000000 0b11110000 0b00000000 0b00000000 0b00000000 0b00001111 0b01110000 0b10000000 0b00000000 0b00000000 0b11100000 0b11111111 0b00011111 0b00000000 0b11111111 0b00000000 0b00001111 0b00000000 0b00000000 0b00000011 0b11001100 0b00111000 0b00000100 0b00000011 0b00000111 0b11111111 0b11111111 0b11111100 0b00000000 0b00000000 0b00000000 0b11111110 0b00000000 0b00000000 0b11000111 0b00000000 0b00000000 0b00000000 0b00000000 0b11111111 0b11111111 0b11000000 0b00000000 0b00000000 0b00001111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000001 0b11000000 0b00100000 0b01111111 0b11111111 0b11111111 0b10000000 0b00000000 0b00000000 0b00000011 0b10001100 0b01110000 0b00001110 0b01111111 0b10000000 0b00000000 0b10000000 0b01100000 0b11111111 0b11111111 0b11111111 0b00000000 0b00000000 0b00000000 0b11111100 0b00000000 0b00000000 0b00000000 0b11110000 0b00001100 0b00000011 0b00000100 0b00111000 0b11111111 0b11111111 0b11111111 0b00000111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b00111110 0b11000001 0b00000000 0b00000000 0b00000011 0b00001100 0b11111000 0b11111111 0b11111111 0b00001111 0b00000000 0b00000000 0b00001111 0b00000000 0b00000000 0b00000000 0b10000011 0b01111110 0b11000000 0b00000000 0b00000000 0b00000000 0b11100000 0b11100000 0b11111111 0b01111111
+
+: wave-4a
+    0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b01000011 0b01000100 0b01010100 0b01101100 0b00000011 0b00000100 0b00000000 0b00000001 0b00000010 0b10000010 0b01000010 0b01001110 0b01010010 0b11100000 0b00010000 0b00000000 0b11000000 0b00100100 0b00101010 0b00010011 0b00010010 0b00010010 0b00000000 0b00000000 0b00000011 0b00000100 0b00000100 0b00000100 0b11000100 0b00100100 0b00100100 0b00000000 0b00000000 0b10000011 0b01000000 0b01010001 0b01010010 0b01010010 0b01010010 0b01010010 0b00000000 0b00000011 0b11000100 0b00000000 0b10000001 0b01000010 0b01000100 0b01000100 0b01000100 0b00000000 0b11101000 0b00000001 0b00011000 0b10100100 0b01100010 0b00100010 0b00100011 0b00100010 0b00000000 0b00000000 0b11000000 0b00000000 0b00000011 0b00000100 0b00000100 0b10001000 0b01001000
+
+: wave-4b
+    0b01000100 0b01000100 0b11000101 0b01000110 0b01101100 0b11111100 0b11111110 0b11111111 0b00011111 0b01010010 0b01111110 0b01000011 0b11000011 0b01000011 0b01100111 0b11111111 0b11111111 0b11111100 0b00010010 0b00110010 0b00110110 0b11111111 0b11111111 0b11111111 0b11111000 0b11000000 0b00000000 0b00100110 0b00110111 0b00111111 0b01111111 0b11111111 0b11100000 0b00000000 0b00000000 0b00000000 0b01111010 0b11111110 0b11111111 0b11111111 0b00000000 0b00000000 0b00000000 0b00000000 0b00000000 0b01101100 0b01111100 0b11111100 0b11111110 0b00011111 0b00000001 0b00000000 0b00000000 0b00000000 0b00100100 0b00010100 0b00011100 0b01111100 0b11111100 0b11111110 0b00011111 0b00000011 0b00000000 0b00101000 0b00101000 0b00110000 0b00100000 0b00100000 0b01100000 0b11110001 0b11111111 0b01111111
+
+# Score data
+: scratch      0 0 0 0
+: score-digits 0 0 0
+
+###########################################
+#
+#  Game Logic
+#
+###########################################
+
+: main
+    spawn-goodies
+    spawn-bird
+    wave-timer := 0
+    delay := wave-timer
+    wave-timer := 255
+
+    loop
+        clear
+        move-bird
+        update-goodies
+        draw-score
+
+        v4 := delay
+#:breakpoint lol
+        if wave-timer < v4 then wave-timer := 0
+        if wave-timer > 0 then wave-timer -= v4
+        if wave-timer == 0 begin
+#:breakpoint wave-timer
+            if wave-state <= 4 begin
+                draw-waves
+            else
+               # Done drawing all wave frames
+               wave-state := 0
+               wave-timer := 180
+               spawn-goodies
+            end
+        end
+
+        delay-loop
+    again
+;
+
+: random-xy
+    v1 := random 0b0001111
+    v2 := random 0b0001111
+;
+
+# lock the framerate of this program via the delay timer
+: delay-loop
+    loop
+       lock := delay
+       if lock != 0 then
+    again
+
+    lock := 3
+    delay := lock
+;
+
+: game-over
+    clear
+    draw-score
+    loop
+    again
+;
+
+###########################################
+#
+#  Score Logic (thanks deep8.8o)
+#
+###########################################
+
+: draw-score
+    i := score-digits
+    load v2
+    i  := hex v0
+    v0 := 49
+    v3 := 26
+    sprite v0 v3 5
+    i  := hex v1
+    v0 += 5
+    sprite v0 v3 5
+    i  := hex v2
+    v0 += 5
+    sprite v0 v3 5
+;
+
+: inc-score
+    i := scratch
+    save v3
+    # draw-score
+    v9 += 1
+    i := score-digits
+    bcd v9
+    # draw-score
+    i := scratch
+    load v3
+;
+
+: update-score
+    if v5 == 0 then return
+    if v5 == 1 then inc-score
+    # draw-score
+    v5 := 0
+;
+
+###########################################
+#
+#  Birdy Logic
+#
+###########################################
+
+: spawn-bird
+    px := random 0b0001111
+    py := random 0b0001111
+    i := bird-0
+    sprite px py 8
+;
+
+: move-bird
+    # Update its position, and redraw bird
+
+    # keyboard E - hide
+    v0 := 6
+    if v0 key begin
+        hide := 1
+        draw-bird
+        return
+    else
+        hide := 0
+    end
+
+    # keyboard W
+    v0 := 5
+    if v0 key begin
+        if py > 0 then py += -1
+    end
+
+    # keyboard S
+    v0 := 8
+    if v0 key begin
+        if py < bird_max_y then py += 1
+    end
+
+    # keyboard A
+    v0 := 7
+    if v0 key begin
+        if px > 0 then px += -1
+    end
+
+    # keyboard D
+    v0 := 9
+    if v0 key begin
+        if px < bird_max_x then px +=  1
+    end
+
+    draw-bird
+;
+
+: draw-bird
+    if hide == 0 begin
+        i := bird-0
+        if bird-state == 0 begin
+            i := bird-1
+        end
+        vf := 1
+        bird-state ^= vf
+    else
+        i := bird-2
+    end
+
+    sprite px py 8
+;
+
+###########################################
+#
+#  Goodies Logic
+#
+###########################################
+
+: spawn-goodies
+    random-xy
+    i := star
+    sprite v1 v2 8
+    v0 := 1
+    i := star_data save v2
+
+    random-xy
+    i := shell
+    sprite v1 v2 8
+    i := shell_data save v2
+
+    random-xy
+    i := dollar
+    sprite v1 v2 8
+    i := dollar_data save v2
+
+    random-xy
+    v1 += 32
+    i := swirl
+    sprite v1 v2 8
+    i := swirl_data save v2
+
+    random-xy
+    v1 += 32
+    i := swirl-2
+    sprite v1 v2 8
+    i := swirl-2_data save v2
+;
+
+: update-goody
+    # Goody is already picked up
+    if v0 == 0 then return
+
+    # Draw the goody
+    sprite v1 v2 8
+
+    # Can't pick up goodie while hidden
+    if hide == 1 then return
+
+    # Erase goody on collision
+    if collision == 1 begin
+        sprite v1 v2 8
+        draw-bird
+        v0 := 0 # Goody is collected
+        inc-score
+    end
+;
+
+: update-goodies
+    # Don't draw goodies while waves are drawn
+    if wave-state > 0 then return
+
+    i := star_data   load v2 i := star   update-goody i := star_data   save v0
+    i := dollar_data load v2 i := dollar update-goody i := dollar_data save v0
+    i := shell_data  load v2 i := shell  update-goody i := shell_data  save v0
+    i := swirl_data  load v2 i := swirl  update-goody i := swirl_data  save v0
+    i := swirl-2_data load v2 i := swirl-2 update-goody i := swirl-2_data save v0
+;
+
+###########################################
+#
+#  Wave Logic
+#
+###########################################
+
+: draw-wave
+    # v0 sprite stride
+    # v1 sprite x
+    # v2 sprite y
+    loop
+        if v0 == 15 then sprite v1 v2 15
+        if v0 == 9  then sprite v1 v2 9
+        i  += v0
+        v1 += 8
+        if v1 == 64 then return
+    again
+;
+
+: draw-waves
+    if wave-state == 0 then draw-wave-1-5
+    if wave-state == 1 then draw-wave-2
+    if wave-state == 2 then draw-wave-3
+    if wave-state == 3 then draw-wave-4
+    if wave-state == 4 then draw-wave-1-5
+
+    # Bird needs to be hidden or above the min y line
+    if hide == 0 begin
+        if py < v3 then game-over
+    end
+    wave-state += 1
+;
+
+: draw-wave-1-5
+    i := wave-data-1-5 load v3 i := wave-1-5 draw-wave # draw
+    lock := 12
+    delay := lock
+    delay-loop
+#:breakpoint wave-a
+    i := wave-data-1-5 load v3 i := wave-1-5 draw-wave # erase
+;
+
+: draw-wave-2
+    i := wave-data-2 load v3 i := wave-2 draw-wave
+    lock := 12
+    delay := lock
+    delay-loop
+#:breakpoint wave-2
+    i := wave-data-2 load v3 i := wave-2 draw-wave
+;
+
+: draw-wave-3
+    i := wave-data-3 load v3 i := wave-3 draw-wave
+    lock := 12
+    delay := lock
+    delay-loop
+#:breakpoint wave-3
+    i := wave-data-3 load v3 i := wave-3 draw-wave
+;
+
+: draw-wave-4
+    i := wave-data-4a load v3 i := wave-4a draw-wave
+    i := wave-data-4b load v3 i := wave-4b draw-wave
+    lock := 12
+    delay := lock
+    delay-loop
+#:breakpoint wave-b
+    i := wave-data-4a load v3 i := wave-4a draw-wave
+    i := wave-data-4b load v3 i := wave-4b draw-wave
+;

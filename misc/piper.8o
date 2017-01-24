@@ -1,0 +1,166 @@
+# Chip8 is a virtual machine designed in 1977 for programming video games.
+# Octo is a high level assembler, disassembler and simulator for Chip8.
+# Click 'Run' and then press ASWD to move the sprite around the screen.
+# Click the Octo logo for source, documentation and examples.
+
+:const bird_max_x 56
+:const bird_max_y 25
+
+:alias lock  va
+:alias score vb
+:alias px    vc
+:alias py    vd
+
+# Goodies data ({alive=1, dead=0}, x, y, height)
+: star_data   1 0 0 4
+: dollar_data 1 0 0 5
+: shell_data  1 0 0 5
+: swirl_data  1 0 0 6
+: swirl2_data 1 0 0 4
+: swirl3_data 1 0 0 5
+
+: star
+    0x20 0xF8 0x70 0x50 0x00 0x00 0x00 0x00
+
+: dollar
+    0x70 0xA8 0xD8 0xA8 0x70 0x00 0x00 0x00
+
+: shell
+    0x70 0xD8 0xD8 0x70 0x20 0x00 0x00 0x00
+
+: swirl
+    0x70 0xD8 0x88 0x70 0x00 0x20 0x00 0x00
+
+: swirl2
+    0x18 0x2C 0xD6 0x1C 0x00 0x00 0x00 0x00
+
+: swirl3
+   0x78 0xFC 0xCC 0xB4 0x2C 0x00 0x00 0x00
+
+: bird
+    0x0E 0x9D 0xFE 0xF4 0x4C 0x38 0x10 0x00
+
+# Note that ve is used as a temp register for comparisons
+# vf is used by CHIP8 to report collisions.
+# Wikipedia states that vf = 1 if a a screen pixel is flipped,
+# and 0 otherwise. But, I think Octo actually just increments it.
+:alias collision vf
+
+: spawn
+    px := random 0b0001111
+    py := random 0b0001111
+    i  := star
+    sprite px py 8
+
+    px := random 0b0001111
+    py := random 0b0001111
+    i  := shell
+    sprite px py 8
+
+    px := random 0b0001111
+    py := random 0b0001111
+    i  := dollar
+    sprite px py 8
+
+    px := random 0b0001111
+    py := random 0b0001111
+    px += 32
+    i  := swirl
+    sprite px py 8
+
+    px := random 0b0001111
+    py := random 0b0001111
+    px += 32
+    i  := swirl2
+    sprite px py 8
+
+    px := random 0b0011111
+    py := random 0b0001111
+    i  := bird
+    sprite px py 8
+;
+
+: main
+    spawn
+
+    loop
+        move-bird
+        update-goodies
+        draw-bird
+
+        # lock the framerate of this program via the delay timer:
+        loop
+            lock := delay
+            if lock != 0 then
+        again
+        lock := 3
+        delay := lock
+    again
+
+###########################################
+#
+#  Birdy Logic
+#
+###########################################
+
+: move-bird
+    # erase the bird, update its position
+    draw-bird
+
+    # keyboard W
+    v0 := 5
+    if v0 key begin
+        if py > 0 then py += -1
+    end
+
+    # keyboard S
+    v0 := 8
+    if v0 key begin
+        if py < bird_max_y then py += 1
+    end
+
+    # keyboard A
+    v0 := 7
+    if v0 key begin
+        if px > 0 then px += -1
+    end
+
+    # keyboard D
+    v0 := 9
+    if v0 key begin
+        if px < bird_max_x then px +=  1
+    end
+;
+
+: draw-bird
+    sprite px py 8
+;
+
+###########################################
+#
+#  Goodies Logic
+#
+###########################################
+
+# v0 - x position
+# v1 - y position
+# The squid sprite frame is tied to y position on the screen
+
+: update-goody
+    # Goody is already picked up
+    if v0 == 0 then return
+
+    # Remove goody on collision
+    if vf == 0 then return
+    sprite v1 v2 4
+    v0 := 0 # Goody is collected
+    score += 1
+;
+
+: update-goodies
+    i := star_data   load v3 update-goody i := star_data   save v0
+    i := dollar_data load v3 update-goody i := dollar_data save v0
+    i := shell_data  load v3 update-goody i := shell_data  save v0
+    i := swirl_data  load v3 update-goody i := swirl_data  save v0
+    i := swirl2_data load v3 update-goody i := swirl2_data save v0
+;
